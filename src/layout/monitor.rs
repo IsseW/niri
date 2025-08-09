@@ -1501,15 +1501,22 @@ impl<W: LayoutElement> Monitor<W> {
         })
     }
 
-    pub fn workspaces_with_render_geo(
+    pub fn workspaces_with_custom_render_geo(
         &self,
+        mut get_geometry: impl FnMut(&Workspace<W>, Rectangle<f64, Logical>) -> Rectangle<f64, Logical>,
     ) -> impl Iterator<Item = (&Workspace<W>, Rectangle<f64, Logical>)> {
         let output_geo = Rectangle::from_size(self.view_size);
 
         let geo = self.workspaces_render_geo();
         zip(self.workspaces.iter(), geo)
             // Cull out workspaces outside the output.
-            .filter(move |(_ws, geo)| geo.intersection(output_geo).is_some())
+            .filter(move |(ws, geo)| get_geometry(ws, *geo).intersection(output_geo).is_some())
+    }
+
+    pub fn workspaces_with_render_geo(
+        &self,
+    ) -> impl Iterator<Item = (&Workspace<W>, Rectangle<f64, Logical>)> {
+        self.workspaces_with_custom_render_geo(|_, geo| geo)
     }
 
     pub fn workspaces_with_render_geo_idx(
@@ -1767,7 +1774,13 @@ impl<W: LayoutElement> Monitor<W> {
         let scale = self.scale.fractional_scale();
         let zoom = self.overview_zoom();
 
-        for (ws, geo) in self.workspaces_with_render_geo() {
+        for (ws, geo) in self.workspaces_with_custom_render_geo(|ws, geo| {
+            let s_geo = ws.shadow_geometry();
+            Rectangle {
+                loc: geo.loc + s_geo.loc,
+                size: s_geo.size,
+            }
+        }) {
             ws.render_shadow(renderer, &mut |elem| {
                 let elem = elem.with_alpha(alpha);
                 let elem = MonitorInnerRenderElement::Shadow(elem);
