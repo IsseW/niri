@@ -1752,7 +1752,12 @@ impl<W: LayoutElement> Monitor<W> {
         renderer: &mut R,
         push: &mut dyn FnMut(MonitorRenderElement<R>),
     ) {
-        let Some(progress) = self.overview_progress.as_ref().map(|p| p.clamped_value()) else {
+        let overview_clamped_progress = self
+            .workspace_switch
+            .is_some()
+            .then_some(1.0)
+            .or(self.overview_progress.as_ref().map(|p| p.clamped_value()));
+        let Some(progress) = overview_clamped_progress else {
             return;
         };
         let alpha = progress.clamp(0., 1.) as f32;
