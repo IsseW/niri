@@ -15,6 +15,7 @@ use smithay::reexports::gbm::Format as Fourcc;
 use smithay::utils::{Point, Transform};
 
 use crate::animation::{Animation, Clock};
+use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
@@ -29,6 +30,7 @@ const BORDER: i32 = 4;
 
 pub struct ConfigErrorNotification {
     state: State,
+    background: BorderRenderElement,
     buffers: RefCell<HashMap<NotNan<f64>, Option<TextureBuffer<GlesTexture>>>>,
 
     // If set, this is a "Created config at {path}" notification. If unset, this is a config error
@@ -159,6 +161,8 @@ impl ConfigErrorNotification {
 
         let location = Point::from((x, y));
         let location = location.to_physical_precise_round(scale).to_logical(scale);
+
+        crate::render_helpers::border::BorderRenderElement::new(buffer.logical_size(), buffer.logical_size(), niri_config::GradientInterpolation::default(), niri_config::Color::new_unpremul(0.0, 0.0, 0.0, 1.0), )
 
         let elem = TextureRenderElement::from_texture_buffer(
             buffer,

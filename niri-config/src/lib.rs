@@ -58,7 +58,7 @@ pub struct Config {
     #[knuffel(child, default)]
     pub clipboard: Clipboard,
     #[knuffel(child, default)]
-    pub hotkey_overlay: HotkeyOverlay,
+    pub dialogues: Dialogues,
     #[knuffel(child, default)]
     pub animations: Animations,
     #[knuffel(child, default)]
@@ -1039,12 +1039,60 @@ pub struct Struts {
     pub bottom: FloatOrInt<-65535, 65535>,
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct HotkeyOverlay {
+#[derive(knuffel::Decode, Debug, Default, Clone, PartialEq)]
+pub struct Dialogues {
+    #[knuffel(child)]
+    pub background: Border,
+
+    #[knuffel(child)]
+    pub font: Option<Font>,
+
+    #[knuffel(child)]
+    pub hotkeys: HotkeysDialogue,
+
+    #[knuffel(child)]
+    pub exit: ExitDialogue,
+
+    #[knuffel(child)]
+    pub error: ErrorDialogue,
+
+    #[knuffel(child)]
+    pub screenshot: ScreenshotDialogue,
+}
+
+#[derive(knuffel::Decode, Debug, Default, Clone, PartialEq)]
+pub struct Font {
+    #[knuffel(argument)]
+    pub name: String,
+}
+
+#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+pub struct HotkeysDialogue {
+    #[knuffel(child)]
+    pub border: Border,
+
     #[knuffel(child)]
     pub skip_at_startup: bool,
     #[knuffel(child)]
     pub hide_not_bound: bool,
+}
+
+#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+pub struct ExitDialogue {
+    #[knuffel(child)]
+    pub border: Border,
+}
+
+#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+pub struct ErrorDialogue {
+    #[knuffel(child)]
+    pub border: Border,
+}
+
+#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+pub struct ScreenshotDialogue {
+    #[knuffel(child)]
+    pub border: Border,
 }
 
 #[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq, Eq)]
