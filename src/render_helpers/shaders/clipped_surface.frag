@@ -1,7 +1,3 @@
-#version 100
-
-//_DEFINES_
-
 #if defined(EXTERNAL)
 #extension GL_OES_EGL_image_external : require
 #endif
@@ -26,6 +22,8 @@ uniform vec2 geo_size;
 uniform vec4 corner_radius;
 uniform mat3 input_to_geo;
 
+//_NIRI_CORNER_
+
 float rounding_alpha(vec2 coords, vec2 size) {
     vec2 center;
     float radius;
@@ -46,9 +44,7 @@ float rounding_alpha(vec2 coords, vec2 size) {
         return 1.0;
     }
 
-    float dist = distance(coords, center);
-    float half_px = 0.5 / niri_scale;
-    return 1.0 - smoothstep(radius - half_px, radius + half_px, dist);
+    return corner_rounding(coords, center, radius, niri_scale);
 }
 
 void main() {

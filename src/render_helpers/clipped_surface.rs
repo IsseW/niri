@@ -91,8 +91,13 @@ impl<R: NiriRenderer> ClippedSurfaceRenderElement<R> {
         ]
     }
 
-    pub fn shader(renderer: &mut R) -> Option<&GlesTexProgram> {
-        Shaders::get(renderer).clipped_surface.as_ref()
+    pub fn shader(renderer: &mut R) -> Option<GlesTexProgram> {
+        let shaders = Shaders::get(renderer);
+        shaders
+            .custom_corner_clipped_surface
+            .borrow()
+            .clone()
+            .or_else(|| shaders.clipped_surface.clone())
     }
 
     pub fn will_clip(

@@ -18,6 +18,8 @@ pub struct Shaders {
     pub custom_resize: RefCell<Option<ShaderProgram>>,
     pub custom_close: RefCell<Option<ShaderProgram>>,
     pub custom_open: RefCell<Option<ShaderProgram>>,
+    pub custom_corner_border: RefCell<Option<ShaderProgram>>,
+    pub custom_corner_clipped_surface: RefCell<Option<GlesTexProgram>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -33,28 +35,11 @@ impl Shaders {
     fn compile(renderer: &mut GlesRenderer) -> Self {
         let _span = tracy_client::span!("Shaders::compile");
 
-        let border = ShaderProgram::compile(
-            renderer,
-            include_str!("border.frag"),
-            &[
-                UniformName::new("colorspace", UniformType::_1f),
-                UniformName::new("hue_interpolation", UniformType::_1f),
-                UniformName::new("color_from", UniformType::_4f),
-                UniformName::new("color_to", UniformType::_4f),
-                UniformName::new("grad_offset", UniformType::_2f),
-                UniformName::new("grad_width", UniformType::_1f),
-                UniformName::new("grad_vec", UniformType::_2f),
-                UniformName::new("input_to_geo", UniformType::Matrix3x3),
-                UniformName::new("geo_size", UniformType::_2f),
-                UniformName::new("outer_radius", UniformType::_4f),
-                UniformName::new("border_width", UniformType::_1f),
-            ],
-            &[],
-        )
-        .map_err(|err| {
-            warn!("error compiling border shader: {err:?}");
-        })
-        .ok();
+        let border = compile_border_program(renderer, include_str!("corner.frag"))
+            .map_err(|err| {
+                warn!("error compiling border shader: {err:?}");
+            })
+            .ok();
 
         let shadow = ShaderProgram::compile(
             renderer,
@@ -76,20 +61,12 @@ impl Shaders {
         })
         .ok();
 
-        let clipped_surface = renderer
-            .compile_custom_texture_shader(
-                include_str!("clipped_surface.frag"),
-                &[
-                    UniformName::new("niri_scale", UniformType::_1f),
-                    UniformName::new("geo_size", UniformType::_2f),
-                    UniformName::new("corner_radius", UniformType::_4f),
-                    UniformName::new("input_to_geo", UniformType::Matrix3x3),
-                ],
-            )
-            .map_err(|err| {
-                warn!("error compiling clipped surface shader: {err:?}");
-            })
-            .ok();
+        let clipped_surface =
+            compile_clipped_surface_program(renderer, include_str!("corner.frag"))
+                .map_err(|err| {
+                    warn!("error compiling clipped surface shader: {err:?}");
+                })
+                .ok();
 
         let resize = compile_resize_program(renderer, include_str!("resize.frag"))
             .map_err(|err| {
@@ -116,6 +93,8 @@ impl Shaders {
             custom_resize: RefCell::new(None),
             custom_close: RefCell::new(None),
             custom_open: RefCell::new(None),
+            custom_corner_border: RefCell::new(None),
+            custom_corner_clipped_surface: RefCell::new(None),
         }
     }
 
@@ -153,9 +132,27 @@ impl Shaders {
         self.custom_open.replace(program)
     }
 
+    pub fn replace_custom_corner_border(
+        &self,
+        program: Option<ShaderProgram>,
+    ) -> Option<ShaderProgram> {
+        self.custom_corner_border.replace(program)
+    }
+
+    pub fn replace_custom_corner_clipped_surface(
+        &self,
+        program: Option<GlesTexProgram>,
+    ) -> Option<GlesTexProgram> {
+        self.custom_corner_clipped_surface.replace(program)
+    }
+
     pub fn program(&self, program: ProgramType) -> Option<ShaderProgram> {
         match program {
-            ProgramType::Border => self.border.clone(),
+            ProgramType::Border => self
+                .custom_corner_border
+                .borrow()
+                .clone()
+                .or_else(|| self.border.clone()),
             ProgramType::Shadow => self.shadow.clone(),
             ProgramType::Resize => self
                 .custom_resize
@@ -174,6 +171,77 @@ pub fn init(renderer: &mut GlesRenderer) {
     if !data.insert_if_missing(|| shaders) {
         error!("shaders were already compiled");
     }
+}
+
+fn compile_border_program(
+    renderer: &mut GlesRenderer,
+    corner_src: &str,
+) -> Result<ShaderProgram, GlesError> {
+    let src = include_str!("border.frag").replace("//_NIRI_CORNER_", corner_src);
+
+    ShaderProgram::compile(
+        renderer,
+        &src,
+        &[
+            UniformName::new("colorspace", UniformType::_1f),
+            UniformName::new("hue_interpolation", UniformType::_1f),
+            UniformName::new("color_from", UniformType::_4f),
+            UniformName::new("color_to", UniformType::_4f),
+            UniformName::new("grad_offset", UniformType::_2f),
+            UniformName::new("grad_width", UniformType::_1f),
+            UniformName::new("grad_vec", UniformType::_2f),
+            UniformName::new("input_to_geo", UniformType::Matrix3x3),
+            UniformName::new("geo_size", UniformType::_2f),
+            UniformName::new("outer_radius", UniformType::_4f),
+            UniformName::new("border_width", UniformType::_1f),
+        ],
+        &[],
+    )
+}
+
+fn compile_clipped_surface_program(
+    renderer: &mut GlesRenderer,
+    corner_src: &str,
+) -> Result<GlesTexProgram, GlesError> {
+    let src = include_str!("clipped_surface.frag").replace("//_NIRI_CORNER_", corner_src);
+
+    renderer.compile_custom_texture_shader(
+        &src,
+        &[
+            UniformName::new("niri_scale", UniformType::_1f),
+            UniformName::new("geo_size", UniformType::_2f),
+            UniformName::new("corner_radius", UniformType::_4f),
+            UniformName::new("input_to_geo", UniformType::Matrix3x3),
+        ],
+    )
+}
+
+pub fn set_custom_corner_shader(renderer: &mut GlesRenderer, src: Option<&str>) {
+    let corner_src = src.unwrap_or(include_str!("corner.frag"));
+
+    let border = match compile_border_program(renderer, corner_src) {
+        Ok(program) => Some(program),
+        Err(err) => {
+            warn!("error compiling custom corner border shader: {err:?}");
+            return;
+        }
+    };
+
+    let clipped_surface = match compile_clipped_surface_program(renderer, corner_src) {
+        Ok(program) => Some(program),
+        Err(err) => {
+            warn!("error compiling custom corner clipped surface shader: {err:?}");
+            return;
+        }
+    };
+
+    if let Some(prev) = Shaders::get(renderer).replace_custom_corner_border(border) {
+        if let Err(err) = prev.destroy(renderer) {
+            warn!("error destroying previous custom corner border shader: {err:?}");
+        }
+    }
+
+    Shaders::get(renderer).replace_custom_corner_clipped_surface(clipped_surface);
 }
 
 fn compile_resize_program(

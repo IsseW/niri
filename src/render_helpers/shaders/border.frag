@@ -208,6 +208,8 @@ vec4 gradient_color(vec2 coords) {
     return color_mix(color_from, color_to, frac);
 }
 
+//_NIRI_CORNER_
+
 float rounding_alpha(vec2 coords, vec2 size, vec4 corner_radius) {
     vec2 center;
     float radius;
@@ -228,9 +230,7 @@ float rounding_alpha(vec2 coords, vec2 size, vec4 corner_radius) {
         return 1.0;
     }
 
-    float dist = distance(coords, center);
-    float half_px = 0.5 / niri_scale;
-    return 1.0 - smoothstep(radius - half_px, radius + half_px, dist);
+    return corner_rounding(coords, center, radius, niri_scale);
 }
 
 void main() {

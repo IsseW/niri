@@ -160,6 +160,9 @@ impl Winit {
         if let Some(src) = config.animations.window_open.custom_shader.as_deref() {
             shaders::set_custom_open_program(renderer, Some(src));
         }
+        if let Some(src) = config.corners.custom_shader.as_deref() {
+            shaders::set_custom_corner_shader(renderer, Some(src));
+        }
         drop(config);
 
         niri.update_shaders();
