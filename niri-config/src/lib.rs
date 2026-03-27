@@ -1635,7 +1635,9 @@ mod tests {
                     },
                 ),
             },
-            corners: Corners::default(),
+            corners: Corners {
+                custom_shader: None,
+            },
             gestures: Gestures {
                 dnd_edge_view_scroll: DndEdgeViewScroll {
                     trigger_width: 10.0,

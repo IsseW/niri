@@ -145,6 +145,7 @@ use crate::protocols::ext_workspace::{self, ExtWorkspaceManagerState};
 use crate::protocols::foreign_toplevel::{self, ForeignToplevelManagerState};
 use crate::protocols::gamma_control::GammaControlManagerState;
 use crate::protocols::mutter_x11_interop::MutterX11InteropManagerState;
+use crate::protocols::niri_wallpaper::NiriWallpaperManagerState;
 use crate::protocols::output_management::OutputManagementManagerState;
 use crate::protocols::screencopy::{Screencopy, ScreencopyBuffer, ScreencopyManagerState};
 use crate::protocols::virtual_pointer::VirtualPointerManagerState;
@@ -305,6 +306,7 @@ pub struct Niri {
     pub gamma_control_manager_state: GammaControlManagerState,
     pub activation_state: XdgActivationState,
     pub mutter_x11_interop_state: MutterX11InteropManagerState,
+    pub wallpaper_manager_state: NiriWallpaperManagerState,
 
     // This will not work as is outside of tests, so it is gated with #[cfg(test)] for now. In
     // particular, shaders will need to learn about the single pixel buffer. Also, it must be
@@ -2311,6 +2313,9 @@ impl Niri {
         let mutter_x11_interop_state =
             MutterX11InteropManagerState::new::<State, _>(&display_handle, move |_| true);
 
+        let wallpaper_manager_state =
+            NiriWallpaperManagerState::new::<State, _>(&display_handle, move |_| true);
+
         #[cfg(test)]
         let single_pixel_buffer_state = SinglePixelBufferState::new::<State>(&display_handle);
 
@@ -2503,6 +2508,7 @@ impl Niri {
             gamma_control_manager_state,
             activation_state,
             mutter_x11_interop_state,
+            wallpaper_manager_state,
             #[cfg(test)]
             single_pixel_buffer_state,
 
@@ -4168,31 +4174,35 @@ impl Niri {
         // We use macros instead of closures to avoid borrowing issues (renderer and push() go
         // into different functions).
         macro_rules! push_popups_from_layer {
-            ($layer:expr, $backdrop:expr, $push:expr) => {{
-                self.render_layer_popups(renderer, target, &layer_map, $layer, $backdrop, $push);
+            ($layer:expr, $backdrop:expr, $ws_idx:expr, $push:expr) => {{
+                self.render_layer_popups(
+                    renderer, target, &layer_map, $layer, $backdrop, $ws_idx, $push,
+                );
             }};
             ($layer:expr, true) => {{
-                push_popups_from_layer!($layer, true, &mut |elem| push(elem.into()));
+                push_popups_from_layer!($layer, true, None, &mut |elem| push(elem.into()));
             }};
             ($layer:expr, $push:expr) => {{
-                push_popups_from_layer!($layer, false, $push);
+                push_popups_from_layer!($layer, false, None, $push);
             }};
             ($layer:expr) => {{
-                push_popups_from_layer!($layer, false, &mut |elem| push(elem.into()));
+                push_popups_from_layer!($layer, false, None, &mut |elem| push(elem.into()));
             }};
         }
         macro_rules! push_normal_from_layer {
-            ($layer:expr, $backdrop:expr, $push:expr) => {{
-                self.render_layer_normal(renderer, target, &layer_map, $layer, $backdrop, $push);
+            ($layer:expr, $backdrop:expr, $ws_idx:expr, $push:expr) => {{
+                self.render_layer_normal(
+                    renderer, target, &layer_map, $layer, $backdrop, $ws_idx, $push,
+                );
             }};
             ($layer:expr, true) => {{
-                push_normal_from_layer!($layer, true, &mut |elem| push(elem.into()));
+                push_normal_from_layer!($layer, true, None, &mut |elem| push(elem.into()));
             }};
             ($layer:expr, $push:expr) => {{
-                push_normal_from_layer!($layer, false, $push);
+                push_normal_from_layer!($layer, false, None, $push);
             }};
             ($layer:expr) => {{
-                push_normal_from_layer!($layer, false, &mut |elem| push(elem.into()));
+                push_normal_from_layer!($layer, false, None, &mut |elem| push(elem.into()));
             }};
         }
 
@@ -4216,12 +4226,28 @@ impl Niri {
             push_normal_from_layer!(Layer::Top);
 
             push_popups_from_layer!(Layer::Bottom);
-            push_popups_from_layer!(Layer::Background);
             push_normal_from_layer!(Layer::Bottom);
-            push_normal_from_layer!(Layer::Background);
 
             // We don't expect more than one workspace when render_above_top_layer().
-            if let Some((ws, _geo)) = mon.workspaces_with_render_geo().next() {
+            // Filter background wallpaper surfaces to only the active workspace's tagged surfaces.
+            let ws_ipc_idx = mon
+                .workspaces_with_render_geo_idx()
+                .next()
+                .map(|((i, _), _)| i as u32 + 1);
+            push_popups_from_layer!(
+                Layer::Background,
+                false,
+                ws_ipc_idx,
+                &mut |elem| push(elem.into())
+            );
+            push_normal_from_layer!(
+                Layer::Background,
+                false,
+                ws_ipc_idx,
+                &mut |elem| push(elem.into())
+            );
+
+            if let Some(((_, ws), _geo)) = mon.workspaces_with_render_geo_idx().next() {
                 push(ws.render_background().into());
             }
         } else {
@@ -4246,16 +4272,18 @@ impl Niri {
                 }};
             }
 
-            for (_ws, geo) in mon.workspaces_with_render_geo() {
+            for ((ws_idx, _ws), geo) in mon.workspaces_with_render_geo_idx() {
+                let ws_ipc_idx = ws_idx as u32 + 1;
                 push_popups_from_layer!(Layer::Bottom, process!(geo));
-                push_popups_from_layer!(Layer::Background, process!(geo));
+                push_popups_from_layer!(Layer::Background, false, Some(ws_ipc_idx), process!(geo));
             }
 
             mon.render_workspaces(renderer, target, focus_ring, &mut |elem| push(elem.into()));
 
-            for (ws, geo) in mon.workspaces_with_render_geo() {
+            for ((ws_idx, ws), geo) in mon.workspaces_with_render_geo_idx() {
+                let ws_ipc_idx = ws_idx as u32 + 1;
                 push_normal_from_layer!(Layer::Bottom, process!(geo));
-                push_normal_from_layer!(Layer::Background, process!(geo));
+                push_normal_from_layer!(Layer::Background, false, Some(ws_ipc_idx), process!(geo));
 
                 process!(geo)(ws.render_background());
             }
@@ -4275,6 +4303,7 @@ impl Niri {
         layer_map: &'a LayerMap,
         layer: Layer,
         for_backdrop: bool,
+        workspace_idx: Option<u32>,
     ) -> impl Iterator<Item = (&'a MappedLayer, Rectangle<i32, Logical>)> {
         // LayerMap returns layers in reverse stacking order.
         layer_map.layers_on(layer).rev().filter_map(move |surface| {
@@ -4282,6 +4311,22 @@ impl Niri {
 
             if for_backdrop != mapped.place_within_backdrop() {
                 return None;
+            }
+
+            // For background-layer surfaces, filter by workspace index if one is requested.
+            // Tagged surfaces only show behind their declared workspace; untagged surfaces show
+            // behind all workspaces (preserves swaybg compatibility).
+            if layer == Layer::Background {
+                if let Some(ws_idx) = workspace_idx {
+                    if let Some(tagged_idx) = self
+                        .wallpaper_manager_state
+                        .workspace_for(surface.wl_surface())
+                    {
+                        if tagged_idx != ws_idx {
+                            return None;
+                        }
+                    }
+                }
             }
 
             let geo = layer_map.layer_geometry(surface)?;
@@ -4296,9 +4341,12 @@ impl Niri {
         layer_map: &LayerMap,
         layer: Layer,
         for_backdrop: bool,
+        workspace_idx: Option<u32>,
         push: &mut dyn FnMut(LayerSurfaceRenderElement<R>),
     ) {
-        for (mapped, geo) in self.layers_in_render_order(layer_map, layer, for_backdrop) {
+        for (mapped, geo) in
+            self.layers_in_render_order(layer_map, layer, for_backdrop, workspace_idx)
+        {
             mapped.render_normal(renderer, geo.loc.to_f64(), target, push);
         }
     }
@@ -4310,9 +4358,12 @@ impl Niri {
         layer_map: &LayerMap,
         layer: Layer,
         for_backdrop: bool,
+        workspace_idx: Option<u32>,
         push: &mut dyn FnMut(LayerSurfaceRenderElement<R>),
     ) {
-        for (mapped, geo) in self.layers_in_render_order(layer_map, layer, for_backdrop) {
+        for (mapped, geo) in
+            self.layers_in_render_order(layer_map, layer, for_backdrop, workspace_idx)
+        {
             mapped.render_popups(renderer, geo.loc.to_f64(), target, push);
         }
     }

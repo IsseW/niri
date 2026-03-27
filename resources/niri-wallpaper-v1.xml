@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="niri_wallpaper_v1">
+
+  <copyright>
+    SPDX-License-Identifier: GPL-3.0-or-later
+  </copyright>
+
+  <interface name="niri_wallpaper_manager_v1" version="1">
+    <description summary="associate layer surfaces with specific workspaces">
+      Allows a client to tag a background-layer surface as belonging to a
+      specific workspace on its output. During workspace overview, niri
+      will composite a tagged surface only behind its declared workspace.
+      Untagged background surfaces keep the existing behavior (shown behind
+      every workspace on the output), preserving compatibility with swaybg.
+    </description>
+
+    <request name="get_wallpaper_surface">
+      <description summary="tag a surface with a workspace index">
+        Create a wallpaper-surface object that associates surface with
+        workspace_index on the output the surface is placed on.
+        workspace_index is the per-output index as reported by the niri IPC
+        Workspace.idx field (1-based: 1 for the first workspace, 2 for the
+        second, and so on).
+
+        The surface must be a layer surface at the Background layer.
+        Calling this on a surface that already has an association replaces
+        the previous one.
+
+        If no workspace with that index currently exists on the output, the
+        surface will not be composited until one does.
+      </description>
+      <arg name="id" type="new_id" interface="niri_wallpaper_surface_v1"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="workspace_index" type="uint"/>
+    </request>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager"/>
+    </request>
+  </interface>
+
+  <interface name="niri_wallpaper_surface_v1" version="1">
+    <description summary="workspace association for a single surface">
+      Represents the workspace association for a single layer surface.
+      Destroying this object removes the association and reverts the
+      surface to the default all-workspaces behavior.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="remove workspace association"/>
+    </request>
+  </interface>
+
+</protocol>
